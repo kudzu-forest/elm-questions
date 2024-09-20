@@ -1,5 +1,5 @@
 module Questions exposing
-    ( Question, Msg(..), Mark(..), UserState(..)
+    ( Question, Msg(..), Mark(..), UserState(..), MsgTaggers
     , createStateful, createStateless
     , mapView
     , getQuestionView, getResponseFieldView
@@ -10,7 +10,7 @@ module Questions exposing
 
 # Types
 
-@docs Question, Msg, Mark, UserState
+@docs Question, Msg, Mark, UserState, MsgTaggers
 
 
 # Creation
@@ -75,6 +75,15 @@ type Mark
     | Wrong (Html Never)
 
 
+{-| A type alias of record which is used in `createStateful` function.
+-}
+type alias MsgTaggers model ans =
+    { modelUpdated : model -> Msg
+    , modelUpdatedWith : (model -> model) -> Msg
+    , userHasAnswered : ans -> Msg
+    }
+
+
 {-| Creates a quiz component with its own `Model`, separate from your main application's model.
 Think of the argument as a simplified version of `Browser.sandbox`, as it lacks an `update` function and has a limited `Msg`.
 
@@ -108,8 +117,11 @@ The `modelUpdated newModel` and `modelUpdatedWith f` functions emit `Updated <Qu
                     , H.text "."
                     ]
 
-            viewResponseField : {modelUpdated, modelUpdatedWith, userHasAnswered} -> QuizModel -> Html Msg
-            viewResponseField {modelUpdated, modelUpdatedWith, userHasAnswered} =
+            viewResponseField :
+                MsgTagger QuizModel Answer
+                    -> QuizModel
+                    -> Html Msg
+            viewResponseField {modelUpdated, userHasAnswered} model =
                 \model ->
                     H.div []
                         [ H.input
