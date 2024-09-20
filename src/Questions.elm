@@ -25,7 +25,7 @@ module Questions exposing
 
 # Utilities
 
-@docs getQuestionView, getResponseFieldView, getUserState
+@docs getQuestionView, getResponseFieldView
 
 -}
 
@@ -320,20 +320,144 @@ type UserState
 
 {-| Renders the quiz question. The `Msg`s from the quiz are mapped to your application's `Msg` using the first argument.
 The functions `viewQuestion` and `viewResponseField` are provided by the `Question` value you passed as the last argument.
+So if you have lots of `Question`s and want to show them at once, following code works.
 
-    import Html as H exposing (Html)
     import Array exposing (Array)
+    import Browser
+    import Html as H exposing (Html)
+    import Html.Attributes as HA
+    import Html.Events as HE
+    import Questions exposing (..)
 
-    questions : Array Question
-    questions
     type alias AppModel =
-        [ answeringState : Array Question
+        { questions : Array Question
+        , userStates : Array UserState
+        }
+
+    initialQuestions : Array Question
+    initialQuestions =
+        [ createStateless
+            { viewQuestion =
+                H.text "1+1 =?"
+            , viewResponseField =
+                List.range 1 9
+                    |> List.map
+                        (\n -> H.button [ HE.onClick n ] [ H.text <| String.fromInt n ])
+                    |> H.div []
+            , isCorrect = (==) 2
+            , viewExplanation =
+                \n ->
+                    if n == 2 then
+                        H.text "Correct!"
+
+                    else
+                        H.text "Incorrect..."
+            }
+        , createStateless
+            { viewQuestion =
+                H.text "2+1 =?"
+            , viewResponseField =
+                List.range 1 9
+                    |> List.map
+                        (\n -> H.button [ HE.onClick n ] [ H.text <| String.fromInt n ])
+                    |> H.div []
+            , isCorrect = (==) 3
+            , viewExplanation =
+                \n ->
+                    if n == 3 then
+                        H.text "Correct!"
+
+                    else
+                        H.text "Incorrect..."
+            }
         ]
+            |> Array.fromList
 
     type AppMsg
-        = Answered String UserState
-        |
-    mapView
+        = NoOp
+        | UserHasAnswered Int UserState
+        | ModelUpdated Int Question
+
+    update : AppMsg -> AppModel -> AppModel
+    update msg model =
+        case msg of
+            NoOp ->
+                model
+
+            UserHasAnswered index userState ->
+                { model
+                    | userStates =
+                        Array.set index userState model.userStates
+                }
+
+            ModelUpdated index question ->
+                { model
+                    | questions =
+                        Array.set index question model.questions
+                }
+
+    view : AppModel -> Html AppMsg
+    view model =
+        List.map2
+            (\a b -> ( a, b ))
+            (Array.toList model.userStates)
+            (Array.toList model.questions)
+            |> List.indexedMap
+                (\n ( userState, question ) ->
+                    mapView
+                        (\msg ->
+                            case msg of
+                                Updated q ->
+                                    ModelUpdated n q
+
+                                Marked m ->
+                                    UserHasAnswered n (HasAnswered m)
+                        )
+                        (\us { viewQuestion, viewResponseField } ->
+                            H.div
+                                []
+                                [ H.text "Q: "
+                                , viewQuestion
+                                , H.br [] []
+                                , case us of
+                                    Answering ->
+                                        viewResponseField
+
+                                    HasAnswered m ->
+                                        let
+                                            ( correct, explanation ) =
+                                                case m of
+                                                    Correct e ->
+                                                        ( True, e )
+
+                                                    Wrong e ->
+                                                        ( False, e )
+                                        in
+                                        H.map (always NoOp)
+                                            (if correct then
+                                                explanation
+
+                                             else
+                                                H.span [ HA.style "color" "red" ]
+                                                    [ explanation ]
+                                            )
+                                ]
+                        )
+                        userState
+                        question
+                )
+            |> H.div []
+
+    main : Program () AppModel AppMsg
+    main =
+        Browser.sandbox
+            { init =
+                { questions = initialQuestions
+                , userStates = Array.repeat (Array.length initialQuestions) Answering
+                }
+            , update = update
+            , view = view
+            }
 
 -}
 mapView :
