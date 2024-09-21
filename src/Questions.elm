@@ -1,8 +1,8 @@
 module Questions exposing
-    ( Question, Msg(..), Mark(..), UserState(..), MsgTaggers
+    ( Question, Msg(..), Mark(..), UserState(..)
     , createStateful, createStateless
     , mapView
-    , getQuestionView, getResponseFieldView
+    , getQuestionView, getResponseFieldView, getUserState
     )
 
 {-|
@@ -10,7 +10,7 @@ module Questions exposing
 
 # Types
 
-@docs Question, Msg, Mark, UserState, MsgTaggers
+@docs Question, Msg, Mark, UserState
 
 
 # Creation
@@ -25,7 +25,7 @@ module Questions exposing
 
 # Utilities
 
-@docs getQuestionView, getResponseFieldView
+@docs getQuestionView, getResponseFieldView, getUserState
 
 -}
 
@@ -39,56 +39,50 @@ import Html.Attributes as HA
         = Question
             { viewQuestion : Html Never
             , viewResponseField : Html Msg
+            , userState : UserState Never
             }
 
-where `Msg` is defined below.
+where `Msg` and `UserState` is defined below.
 
 -}
 type Question
     = Question
         { viewQuestion : Html Never
         , viewResponseField : Html Msg
+        , userState : UserState Never
         }
 
 
 {-| `Msg`s sent from the quiz component to the parent application. You need to convert them into your application's `Msg` type using the first argument of the `mapView` function.
 -}
 type Msg
-    = Updated Question
-    | Marked Mark
+    = Updated (() -> Question)
+    | Marked Mark (() -> Question)
 
 
 defaultMsg : Msg
 defaultMsg =
-    Updated
-        (Question
-            { viewQuestion = H.text ""
-            , viewResponseField = H.text ""
-            }
-        )
+    Updated <|
+        \() ->
+            Question
+                { viewQuestion = H.text ""
+                , viewResponseField = H.text ""
+                , userState = Answering
+                }
 
 
-{-| A custom type for quiz results. You can attach detailed explanation in `Html Never` for educational purpose.
+{-| A custom type for quiz results.
 -}
 type Mark
-    = Correct (Html Never)
-    | Wrong (Html Never)
-
-
-{-| A type alias of record which is used in `createStateful` function.
--}
-type alias MsgTaggers model ans =
-    { modelUpdated : model -> Msg
-    , modelUpdatedWith : (model -> model) -> Msg
-    , userHasAnswered : ans -> Msg
-    }
+    = Correct
+    | Wrong
 
 
 {-| Creates a quiz component with its own `Model`, separate from your main application's model.
 Think of the argument as a simplified version of `Browser.sandbox`, as it lacks an `update` function and has a limited `Msg`.
 
 You can send a `Msg` using the internally provided `modelUpdate`, `modelUpdateWith` and `userHasAnswered` functions.
-The `modelUpdated newModel` and `modelUpdatedWith f` functions emit `Updated <Question with the model updated>`, and the `userHasAnswered ans` function emits `Marked ((Correct|Wrong) (Html Never))` based on whether `isCorrect ans` returns `True` or `False`.
+The `modelUpdated newModel` and `modelUpdatedWith f` functions emit `Updated <Question with the model updated>`, and the `userHasAnswered ans` function emits `Marked ((Correct|Wrong) (() -> Question))` based on whether `isCorrect ans` returns `True` or `False`.
 
     import Html as H exposing (Html)
     import Html.Attributes as HA
@@ -118,7 +112,9 @@ The `modelUpdated newModel` and `modelUpdatedWith f` functions emit `Updated <Qu
                     ]
 
             viewResponseField :
-                MsgTagger QuizModel Answer
+                { modelUpdated : QuizModel -> Msg
+                , userHasAnswered : Answer -> Msg
+                }
                     -> QuizModel
                     -> Html Msg
             viewResponseField {modelUpdated, userHasAnswered} model =
@@ -211,25 +207,57 @@ createStateful :
     , viewExplanation : answer -> Html Never
     }
     -> Question
-createStateful ({ init, viewQuestion, viewResponseField, isCorrect, viewExplanation } as record) =
+createStateful { init, viewQuestion, viewResponseField, isCorrect, viewExplanation } =
+    createStatefulHelp
+        { init = init
+        , viewQuestion = viewQuestion
+        , viewResponseField = viewResponseField
+        , isCorrect = isCorrect
+        , viewExplanation = viewExplanation
+        , userState = Answering
+        }
+
+
+createStatefulHelp ({ init, viewQuestion, viewResponseField, isCorrect, viewExplanation, userState } as record) =
     { viewQuestion = viewQuestion
     , viewResponseField =
         viewResponseField
             { modelUpdated =
                 \newModel ->
-                    Updated (createStateful { record | init = newModel })
+                    Updated
+                        (\() ->
+                            createStatefulHelp
+                                { record | init = newModel }
+                        )
             , modelUpdatedWith =
                 \f ->
-                    Updated (createStateful { record | init = f init })
+                    Updated
+                        (\() ->
+                            createStatefulHelp
+                                { record | init = f init }
+                        )
             , userHasAnswered =
                 \ans ->
-                    if isCorrect ans then
-                        Marked (Correct (viewExplanation ans))
+                    let
+                        c =
+                            if isCorrect ans then
+                                Correct
 
-                    else
-                        Marked (Wrong (viewExplanation ans))
+                            else
+                                Wrong
+                    in
+                    Marked c
+                        (\() ->
+                            createStatefulHelp
+                                { record
+                                    | userState =
+                                        HasAnswered c
+                                            (viewExplanation ans)
+                                }
+                        )
             }
             init
+    , userState = userState
     }
         |> Question
 
@@ -325,9 +353,9 @@ createStateless { viewQuestion, viewResponseField, isCorrect, viewExplanation } 
 
 {-| A custom type that represents the user's state regarding a question. You need to maintain this value in your application's model and pass it to the `mapView` function.
 -}
-type UserState
+type UserState a
     = Answering
-    | HasAnswered Mark
+    | HasAnswered Mark (Html a)
 
 
 {-| Renders the quiz question. The `Msg`s from the quiz are mapped to your application's `Msg` using the first argument.
@@ -343,7 +371,6 @@ So if you have lots of `Question`s and want to show them at once, following code
 
     type alias AppModel =
         { questions : Array Question
-        , userStates : Array UserState
         }
 
     initialQuestions : Array Question
@@ -387,8 +414,7 @@ So if you have lots of `Question`s and want to show them at once, following code
 
     type AppMsg
         = NoOp
-        | UserHasAnswered Int UserState
-        | ModelUpdated Int Question
+        | QuestionUpdated Int Question
 
     update : AppMsg -> AppModel -> AppModel
     update msg model =
@@ -396,13 +422,7 @@ So if you have lots of `Question`s and want to show them at once, following code
             NoOp ->
                 model
 
-            UserHasAnswered index userState ->
-                { model
-                    | userStates =
-                        Array.set index userState model.userStates
-                }
-
-            ModelUpdated index question ->
+            QuestionUpdated index question ->
                 { model
                     | questions =
                         Array.set index question model.questions
@@ -410,52 +430,41 @@ So if you have lots of `Question`s and want to show them at once, following code
 
     view : AppModel -> Html AppMsg
     view model =
-        List.map2
-            (\a b -> ( a, b ))
-            (Array.toList model.userStates)
-            (Array.toList model.questions)
+        Array.toList model.questions
             |> List.indexedMap
-                (\n ( userState, question ) ->
+                (\n question ->
                     mapView
                         (\msg ->
                             case msg of
                                 Updated q ->
-                                    ModelUpdated n q
+                                    QuestionUpdated n (q ())
 
-                                Marked m ->
-                                    UserHasAnswered n (HasAnswered m)
+                                Marked m q ->
+                                    QuestionUpdated n (q ())
                         )
-                        (\us { viewQuestion, viewResponseField } ->
+                        (\{ viewQuestion, viewResponseField, userState } ->
                             H.div
                                 []
                                 [ H.text "Q: "
                                 , viewQuestion
                                 , H.br [] []
-                                , case us of
+                                , case userState of
                                     Answering ->
                                         viewResponseField
 
-                                    HasAnswered m ->
-                                        let
-                                            ( correct, explanation ) =
-                                                case m of
-                                                    Correct e ->
-                                                        ( True, e )
+                                    HasAnswered m e ->
+                                        case m of
+                                            Correct ->
+                                                e
 
-                                                    Wrong e ->
-                                                        ( False, e )
-                                        in
-                                        H.map (always NoOp)
-                                            (if correct then
-                                                explanation
-
-                                             else
-                                                H.span [ HA.style "color" "red" ]
-                                                    [ explanation ]
-                                            )
+                                            Wrong ->
+                                                H.span
+                                                    [ HA.style "color"
+                                                        "red"
+                                                    ]
+                                                    [ e ]
                                 ]
                         )
-                        userState
                         question
                 )
             |> H.div []
@@ -465,7 +474,6 @@ So if you have lots of `Question`s and want to show them at once, following code
         Browser.sandbox
             { init =
                 { questions = initialQuestions
-                , userStates = Array.repeat (Array.length initialQuestions) Answering
                 }
             , update = update
             , view = view
@@ -475,17 +483,15 @@ So if you have lots of `Question`s and want to show them at once, following code
 mapView :
     (Msg -> msg)
     ->
-        (UserState
-         ->
-            { viewQuestion : Html msg
-            , viewResponseField : Html msg
-            }
+        ({ viewQuestion : Html msg
+         , viewResponseField : Html msg
+         , userState : UserState msg
+         }
          -> Html msg
         )
-    -> UserState
     -> Question
     -> Html msg
-mapView mapper frame userState (Question q) =
+mapView mapper frame (Question q) =
     let
         mapped =
             { viewQuestion =
@@ -494,9 +500,17 @@ mapView mapper frame userState (Question q) =
                     |> H.map mapper
             , viewResponseField =
                 H.map mapper q.viewResponseField
+            , userState =
+                case q.userState of
+                    Answering ->
+                        Answering
+
+                    HasAnswered mark explanation ->
+                        HasAnswered mark
+                            (H.map (\_ -> mapper defaultMsg) explanation)
             }
     in
-    frame userState mapped
+    frame mapped
 
 
 {-| Returns view of question sentence. Use `mapView` for rendering purpose.
@@ -511,3 +525,10 @@ getQuestionView (Question q) =
 getResponseFieldView : Question -> Html Msg
 getResponseFieldView (Question q) =
     q.viewResponseField
+
+
+{-| Returns user state. Use `mapView` for rendering purpose.
+-}
+getUserState : Question -> UserState Never
+getUserState (Question q) =
+    q.userState
