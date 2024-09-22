@@ -3,7 +3,7 @@
     "name": "kudzu-forest/elm-questions",
     "summary": "deals various kind of questions with one type.",
     "license": "MIT",
-    "version": "2.0.0",
+    "version": "2.0.1",
     "exposed-modules": [
         "Questions"
     ],
