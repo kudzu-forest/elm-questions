@@ -82,7 +82,7 @@ type Mark
 Think of the argument as a simplified version of `Browser.sandbox`, as it lacks an `update` function and has a limited `Msg`.
 
 You can send a `Msg` using the internally provided `modelUpdate`, `modelUpdateWith` and `userHasAnswered` functions.
-The `modelUpdated newModel` and `modelUpdatedWith f` functions emit `Updated <Question with the model updated>`, and the `userHasAnswered ans` function emits `Marked ((Correct|Wrong) (() -> Question))` based on whether `isCorrect ans` returns `True` or `False`.
+The `modelUpdated newModel` and `modelUpdatedWith f` functions emit `Updated (() -> Question)`, and the `userHasAnswered ans` function emits `Marked ((Correct|Wrong) (() -> Question))` based on whether `isCorrect ans` returns `True` or `False`.
 
     import Html as H exposing (Html)
     import Html.Attributes as HA
